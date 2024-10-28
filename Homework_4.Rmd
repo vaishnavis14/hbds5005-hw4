@@ -1,0 +1,276 @@
+---
+title: "Homework 4"
+author: "Vaishnavi Sathiyamoorthy"
+date: "2024-10-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(here)
+library(readxl)
+library(writexl)
+library(tidyverse)
+library(boot)
+library(EnvStats)
+library(pwr)
+```
+
+## Question 1. Proportion of female patients with STS enrolling on a clinical trial
+We will assume that the patients on this trial are representative of individuals who enroll on clinical trials for the treatment of STS.
+
+### Question 1a.
+What is the estimate for the proportion of patients with STS who enroll in a clinical trial that are women (using this data)?
+
+#### Solution
+```{r}
+SarcomaTrialData = read_xlsx(here("SarcomaTrialData2024.xlsx"))
+set.seed(116)
+id <- sample(1:dim(SarcomaTrialData)[1], 500, replace = F)
+SarcomaTrialData2024 <- SarcomaTrialData[id,]
+write_xlsx(SarcomaTrialData2024, "./SarcomaTrialData2024.xlsx", col_names = T)
+sum(SarcomaTrialData2024$SEX == "F") / nrow(SarcomaTrialData2024)
+```
+
+The proportion of patients with STS who enroll in a clinical trial that are women is 0.544.
+
+### Question 1b.
+Suppose you want to perform a test of significance to determine whether the estimate of the proportion obtained in 1a differs from the population proportion of individuals with STS who are female. State the null and alternative hypotheses for the significance test. Remember, do not just use symbols without defining what the symbols represent in context of the question of interest.
+
+#### Solution
+Assuming the population proportion = μ. 
+Null Hypothesis: The estimate of the proportion of females with STS from the study = 0.476.
+Alternative Hypothesis: The estimate of the proportion of females with STS from the study ≠ 0.476.
+
+### Question 1c.
+Report the p-value to three decimal places for the test of significance. (Note that if the p-value is less than 0.001, then report it as p-value < 0.001.)
+
+#### Solution
+```{r}
+binom.test(sum(SarcomaTrialData2024$SEX == "F"), 
+           nrow(SarcomaTrialData2024),
+           0.476)
+```
+
+The p-value is 0.003.
+
+### Question 1d.
+Based on the results of 1a, 1b, and 1c, does it appear as though the proportion females who enroll on STS clinical trials reflects the proportion of individuals with STS who are female? Write your conclusion in sentences. Also state what assumptions you are making.
+
+#### Solution
+Since p-value = 0.003, we reject the null hypothesis. We are 95% confident that the proportion of women with STS in this study is not representative of the true population population of 0.476.
+
+## Question 2. Performing a manual bootstrapping to get a CI
+Recall the steps for getting a bootstrapped sample.
+1. Draw a sample of the same size as the original data with replacement from the original sample.
+2. Compute the value of the statistic for each bootstrap sample (in this case it will be the mean or average value).
+3. Repeat the process B times (B should be “large”).
+4. Construct the bootstrap distribution of the statistics.
+Use B = 7500.
+Note: For this question you should write your own functions, loops, or simulations, or you should modify code from the Lecture Notes. You should NOT use the boot package. Submit all code.
+
+### Question 2a.
+Make a density of the bootstrapped distribution for the proportion of patients who enroll on STS clinical trials and are between the ages of 40 and 60 years, inclusive.
+
+#### Solution
+```{r}
+SarcomaTrialData2024 <- SarcomaTrialData2024 %>% mutate(fouty_to_sixty = case_when(AGE >= 40 & AGE <= 60 ~ 1,
+                                                           AGE < 40 | AGE > 60 ~ 0))
+props <- numeric(7500)
+for (i in 1:7500){
+  b_sample <- sample(SarcomaTrialData2024$fouty_to_sixty, size = nrow(SarcomaTrialData2024), replace = TRUE)
+  props[i] <- sum(b_sample == 1, na.rm = T) / length(b_sample)
+}
+plot(density(props),
+     main = "Bootstap Distribution of Statistics",
+     xlab = "Sample Proportions")
+axis(1, at = c(0.35, 0.4, 0.45, 0.5, 0.55))
+```
+
+### Question 2b.
+Determine and report the point estimate you would use for the proportion of patients who enroll on STS clinical trials and are between the ages of 40 and 60 years, inclusive.
+
+#### Solution
+```{r}
+sum(SarcomaTrialData2024$fouty_to_sixty == 1) / nrow(SarcomaTrialData2024)
+```
+
+The point estimate for the proportion fo patients who enroll in STS clinical trials between the ages of 40 and 60 is 0.452.
+
+### Question 2c.
+Determine and report the 90% confidence interval using the basic method (based on the bootstrapped sampling distribution for the sample proportion you generated in a) for the estimate of the proportion of patients who enroll on STS clinical trials that are between the ages of 40 and 60 years, inclusive.
+
+#### Solution
+```{r}
+quantile(props, probs = c(0.05, 0.95))
+```
+
+The 90% confidence interval is 0.414 and 0.490.
+
+### Question 2d.
+What is your conclusion based on the answers to 3b and 3c?
+
+#### Solution
+The true proportion of individuals with STS that are between the ages of 40 and 60 is 0.276. The point estimate for the proportion of individuals within that age is 0.452. Based on this study, we are 90% confident that proportion of individuals within that age in this study is between 0.414 and 0.490. Based on this information, it can be concluded that the age distribution of this study is not representative of the true population of individuals with STS.
+
+## Question 3. Direct method for obtaining a bootstrap confidence interval
+For this problem, you will need to use the boot package and the boot.ci() function. You will also have to write a function to compute the mean of each sample (needed for the boot() function). The confidence interval of interest is the one based on quantiles, which is indicated by the argument type = "basic" in the boot.ci() function.
+
+### Question 3a.
+Report the point estimate for the sample proportion and the 95% confidence interval based on a bootstrapped sampling distribution for the proportion of females with STS who enroll on a clinical trial.
+
+#### Solution
+```{r}
+
+SarcomaTrialData2024 <- SarcomaTrialData2024 %>% mutate(Female = case_when(SEX == "F" ~ 1,
+                                                           SEX == "M" ~ 0))
+n <- nrow(SarcomaTrialData2024)
+bootProp <- function(x, idx) {
+  return(sum(x[idx] == 1) / n)
+}
+set.seed(123)
+bootPropObj <- boot(SarcomaTrialData2024$Female, bootProp, 7500)
+sum(SarcomaTrialData2024$SEX == "F") / nrow(SarcomaTrialData2024)
+boot.ci(bootPropObj, conf = 0.95, type = 'basic')$basic[4]
+boot.ci(bootPropObj, conf = 0.95, type = 'basic')$basic[5]
+```
+
+### Question 3b
+Based on your results in 3a, does it appear as though the proportion females who enroll on STS clinical trials reflects the proportion of individuals with STS who are female? Write your conclusion in sentences.
+
+#### Solution
+The point estimate of females in this study that have STS is 0.544. The 95% confidence interval that the proportion individuals enrolled in this study are female is between 0.502 and 0.588. The true proportion of women with STS is 0.476. Since this proportion is not included in the interval, it can be concluded that the study is not representative of the sex distribution.
+
+### Question 3c.
+How does your conclusion in 3b compare to that in 1d? Explain why this is or is not surprising
+
+#### Solution
+This conclusion gives the same conclusion as 1d. This is not surprising because the binom test showed that we reject the null hypothesis and the study's proportion of females is not equal to the true population proportion of females with STS. Bootstrapping the sample also showed that the confidence interval does not include the true population proportion of females.
+
+## Question 4. Sample size determination
+Suppose you are approached by an investigator who wants to perform a study to determine the proportion of individuals who have a normal BMI value. She wants to know what sample size is necessary to determine whether the proportion in her population of interest is higher than the general US proportion by 0.05 or more. It is known that the the proportion of US adults with a BMI that is considered normal is 0.23.
+
+### Question 4a.
+The investigator wants to use a two-sided significance level of 0.05 and wants to have 90% power. What sample size does she need? When you report the sample size to the researcher, she says that the sample size is too large. The following questions (4b and 4c) are in response to this.
+
+#### Solution
+```{r}
+library(EnvStats)
+propTestN(p.or.p1 = 0.23, p0.or.p2 = 0.28, alpha = 0.05, power = 0.9)
+```
+
+The sample size is 797.
+
+### Question 4b.
+Suppose she tells you that she can only use a sample of size 500. The null hypothesis, power, and level of significance remain the same. What is the minimum detectable difference she can achieve with this sample size?
+
+#### Solution
+```{r}
+propTestMdd(n.or.n1 = 500, p0.or.p2 = 0.23, alpha = 0.05, power = 0.9)
+```
+
+The minimum detectable difference is 0.064.
+
+### Question 4c.
+Suppose she tells you that she can only use a sample of size 500. The null hypothesis, minimum detectable difference, and level of significance remain the same. What is the power for the test of significance?
+
+#### Solution
+```{r}
+propTestPower(n.or.n1 = 500, p.or.p1 = 0.23, p0.or.p2 = 0.28, alpha = 0.05)
+```
+
+The power is 0.89.
+
+## Question 5. More exploration of power and sample size
+Suppose we want to do a study where we know the historical value for the proportion of high-risk individuals who get a disease is 0.35. We want to test whether a preventative strategy REDUCES this proportion (so will be doing a one-sided test; no reason to believe that preventative strategy would increase the infection rate).
+
+### Question 5a.
+Suppose we are interested in the impact of the minimum detectable difference on power and sample size. We will investigate this with a plot. The level of significance (one-sided), is fixed at 0.05. The different minimum detectable differences of interest are 0.05, 0.10. 0.15, 0.20 (corresponding to decreases in the disease rates so new rates would be 0.3, 0.25, 0.20, and 0.15). Generate a plot with sample size on the x-axis, power on the y-axis and a line for each of the minimum detectable differences on the same plot. Use the seq function to generate the sample sizes. Then for each sample size, determine the corresponding power (for a given minimum detectable difference and the indicated level of significance.)
+
+#### Solution
+```{r}
+calculate_power <- function(n, p1, p2, sig.level = 0.05) {
+  power.prop.test(n = n, p1 = p1, p2 = p2, sig.level = sig.level, alternative = "one.sided")$power
+}
+p1 <- 0.35
+
+min_diff <- c(0.05, 0.10, 0.15, 0.20)
+new_props <- p1 - min_diff
+
+sample_sizes <- seq(20, 500, by = 10)
+results <- data.frame()
+for (i in 1:length(new_props)) {
+  powers <- sapply(sample_sizes, calculate_power, p1 = p1, p2 = new_props[i])
+  temp_df <- data.frame(SampleSize = sample_sizes, Power = powers, Difference = min_diff[i])
+  results <- rbind(results, temp_df)
+}
+ggplot(results, aes(x = SampleSize, y = Power, color = factor(Difference))) +
+  geom_line() +
+  labs(
+    title = "Power vs. Sample Size for Different Minimum Detectable Differences",
+    x = "Sample Size",
+    y = "Power",
+    color = "Min Detectable Diff"
+  ) +
+  theme_minimal()
+
+```
+
+### Question 5b.
+Based on your plot in 5a, describe what happens to power when you increase the minimum detectable difference (difference between the hypothesized alternative and the null value) while keeping the sample size and level of significance the same.
+
+#### Solution
+As minimum detectable difference increases, power increases.
+
+### Question 5c.
+Based on your plot in 5a, describe what happens to sample size when you decrease the power while keeping the minimum detectable difference and level of significance the same.
+
+#### Solution
+As power decreases, the sample size decreases.
+
+### Question 5d.
+Suppose we are interested in the impact of the level of significance on power and sample size. We will investigate this with a plot. The minimum detectable difference of interest is fixed at 0.04 (i.e the difference between the hypothesized alternative value and the null value is 0.04). Generate a plot with sample size on the x-axis, power on the y-axis and a line for each different level of significance on the plot: 0.01, 0.05, and 0.10.
+
+#### Solution
+```{r}
+calculate_power <- function(n, p1, p2, sig.level) {
+  power.prop.test(n = n, p1 = p1, p2 = p2, sig.level = sig.level, alternative = "one.sided")$power
+}
+p1 <- 0.35
+p2 <- p1 - 0.04
+sig_levels <- c(0.01, 0.05, 0.10)
+sample_sizes <- seq(20, 500, by = 10)
+results <- data.frame()
+
+for (sig in sig_levels) {
+  powers <- sapply(sample_sizes, calculate_power, p1 = p1, p2 = p2, sig.level = sig)
+  temp_df <- data.frame(SampleSize = sample_sizes, Power = powers, Significance = sig)
+  results <- rbind(results, temp_df)
+}
+
+ggplot(results, aes(x = SampleSize, y = Power, color = factor(Significance))) +
+  geom_line() +
+  labs(
+    title = "Power vs. Sample Size for Different Significance Levels",
+    x = "Sample Size",
+    y = "Power",
+    color = "Significance Level"
+  ) +
+  theme_minimal()
+```
+
+
+### Question 5e.
+Based on your plot in 5d, describe what happens to power when you decrease the level of significance while keeping the minimum detectable difference and sample size the same.
+
+#### Solution
+As significance level decreases, power decreases.
+
+### Question 5f.
+Based on your plot in 5d, describe what happens to the power when you decrease the sample while keeping the level of significance and minimum detectable difference the same.
+
+#### Solution
+As sample size decreases, power decreases.
